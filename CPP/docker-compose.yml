@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  fundamentals_cpp:
+    build: ./
+    container_name: fundamentals_cpp
+    # network_mode: host
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+    networks:
+      localnet:
+        ipv4_address: 172.30.0.42
+    ports:
+      - 8082:443
+      - 8086:8086
+    tty: true
+    volumes:
+      - ./dev:/root/dev
+
+networks:
+  localnet:
+    ipam:
+       driver: default
+       config:
+         - subnet: 172.30.0.0/16
