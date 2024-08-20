@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstdint>
+#include <sys/mman.h>
 
 // Aliases:
 using u8  = uint8_t;
@@ -33,6 +34,77 @@ void print_binary(void* data, std::size_t size) {
     printf("\n");
 }
 
+/**
+0 1 2 3 4 5 6 7 
+  x
+*/
+
+template<typename T>
+T align(T data, s64 align) {
+    s64 a = (s64) data;
+    if (a % align != 0) {
+        a += align - a % align;
+    }
+    return (T) a;
+} 
+
+struct Arena {
+    void* memory;
+    s64 align = 8;
+    u8* end;
+    u8* cursor;
+};
+
+struct Does_Things {
+    Does_Things() {
+        printf("I'm doing things\n");
+    }
+    
+    ~Does_Things() {
+        printf("I'm done do things\n");
+    }
+};
+
+struct Defer {
+    Defer() {
+    
+    }
+    
+    ~Defer() {
+    
+    }
+};
+
+static const size_t TWO_GIGS = (size_t) (1024) * 1024 * 1024 * 2;
+
+void init(Arena* arena, size_t count = TWO_GIGS) {
+    auto& a = *arena;
+    
+    auto memory = mmap(NULL, count, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    a.memory = memory;
+    a.end = (u8*) memory + count;
+    a.cursor = (u8*) memory;
+}
+
+void reset(Arena* arena) {
+    auto& a = *arena;
+    a.cursor = (u8*) a.memory;
+}
+
+void* alloc(Arena* arena, size_t count) {
+    auto& a = *arena;
+    
+    a.cursor = align(a.cursor, a.align);
+    auto new_cursor = a.cursor + count;
+    if (new_cursor > a.end) {
+        printf("Out of memory\n");
+        return NULL;
+    }
+    auto ret = a.cursor;
+    a.cursor = new_cursor;
+    return ret;
+}
+
 int main() {
     bool* a_bool = (bool*) malloc(sizeof(bool));
     *a_bool = true;
@@ -50,4 +122,18 @@ int main() {
     print_binary(&f, sizeof(f32));
     print_binary(&d, sizeof(f64));
     print_binary(a_bool, sizeof(bool));
+    
+    Arena arena;
+    init(&arena);
+    arena.align = 1;
+    printf("%p\n", arena.memory);
+    a_bool = (bool*) alloc(&arena, sizeof(bool));
+    printf("%p\n", arena.cursor);
+    a_bool = (bool*) alloc(&arena, sizeof(bool));
+    printf("%p\n", arena.cursor);
+    
+    Does_Things dt;
+    // defer { printf("Hello defer world!\n"); };
+    auto lamb = [&] () { alloc(&arena, 2); printf("Hello lambda world!\n"); };
+    lamb();
 }
