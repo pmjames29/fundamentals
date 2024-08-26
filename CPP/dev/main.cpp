@@ -2,6 +2,8 @@
 #include <cstdlib>
 #include <cstdint>
 #include <sys/mman.h>
+#include <utility>
+#include <cstring>
 
 // Aliases:
 using u8  = uint8_t;
@@ -48,6 +50,9 @@ T align(T data, s64 align) {
     return (T) a;
 } 
 
+
+
+
 struct Arena {
     void* memory;
     s64 align = 8;
@@ -65,16 +70,6 @@ struct Does_Things {
     }
 };
 
-struct Defer {
-    Defer() {
-    
-    }
-    
-    ~Defer() {
-    
-    }
-};
-
 static const size_t TWO_GIGS = (size_t) (1024) * 1024 * 1024 * 2;
 
 void init(Arena* arena, size_t count = TWO_GIGS) {
@@ -86,10 +81,9 @@ void init(Arena* arena, size_t count = TWO_GIGS) {
     a.cursor = (u8*) memory;
 }
 
-void reset(Arena* arena) {
-    auto& a = *arena;
-    a.cursor = (u8*) a.memory;
-}
+#define RESET_AT_POINT(arena) \
+auto current_point = arena.cursor; \
+defer { arena.cursor = current_point; }
 
 void* alloc(Arena* arena, size_t count) {
     auto& a = *arena;
@@ -104,6 +98,53 @@ void* alloc(Arena* arena, size_t count) {
     a.cursor = new_cursor;
     return ret;
 }
+
+void* realloc(Arena* arena, void* prev, size_t old_count, size_t new_count) {
+    if (new_count <= old_count) return prev;
+    auto& a = *arena;
+    if (prev == a.cursor - old_count) {
+        auto diff = new_count - old_count;
+        auto new_cursor = a.cursor + diff;
+        if (new_cursor > a.end) {
+            printf("Out of memory\n");
+            return NULL;
+        }
+        a.cursor = new_cursor;
+        return prev;
+    }
+    auto ret = alloc(arena, new_count);
+    memcpy(ret, prev, old_count);
+    return ret;
+}
+
+template<typename Code>
+struct Defer {
+    Code code;
+    Defer(Code block) : code(block) {}
+    ~Defer() { code(); }
+};
+struct Defer_Generator { template<typename Code> Defer<Code> operator +(Code code) { return Defer<Code>{code}; } };
+#define GEN_DEFER_NAME_HACK(name, counter) name ## counter
+#define GEN_DEFER_NAME(name, counter) GEN_DEFER_NAME_HACK(name, counter)
+#define defer auto GEN_DEFER_NAME(_defer_, __COUNTER__) = Defer_Generator{} + [&]()
+
+template<typename T, size_t Count>
+struct Array_Fix {
+    T data[Count];
+    
+    T& operator [] (s64 idx) {
+        return data[idx];
+    }
+};
+
+struct Array_Dyn {
+
+};
+
+struct Array_View {
+
+};
+
 
 int main() {
     bool* a_bool = (bool*) malloc(sizeof(bool));
@@ -129,11 +170,25 @@ int main() {
     printf("%p\n", arena.memory);
     a_bool = (bool*) alloc(&arena, sizeof(bool));
     printf("%p\n", arena.cursor);
-    a_bool = (bool*) alloc(&arena, sizeof(bool));
+    a_bool = (bool*) realloc(&arena, a_bool, sizeof(bool), sizeof(bool) * 3);
     printf("%p\n", arena.cursor);
     
     Does_Things dt;
-    // defer { printf("Hello defer world!\n"); };
     auto lamb = [&] () { alloc(&arena, 2); printf("Hello lambda world!\n"); };
     lamb();
+    
+    // Calling defer here will reference the macro defined above
+    defer { printf("Hello defer world 1!\n"); };
+    defer { printf("Hello defer world 2!\n"); };
+    
+    // for (int i = 0; i < 10; i++) {
+    //     RESET_AT_POINT(arena);
+    //     printf("%p\n", arena.cursor);
+    //     alloc(&arena, sizeof(int));
+    // }
+    
+    Array_Fix<int, 2> arr;
+    arr[0] = 2;
+    printf("%d\n", arr[0]);
+    
 }
