@@ -19,7 +19,6 @@ using s64 = int64_t;
 using f32 = float;
 using f64 = double;
 
-
 void print_byte(u8 data) {
     u8 mask = 0b1;
     for (int i = 7; i >= 0; --i) {
@@ -60,6 +59,13 @@ struct Arena {
     u8* cursor;
 };
 
+struct Context {
+    Arena arena;
+};
+Context context;
+auto& arena = context.arena;
+
+
 struct Does_Things {
     Does_Things() {
         printf("I'm doing things\n");
@@ -81,7 +87,9 @@ void init(Arena* arena, size_t count = TWO_GIGS) {
     a.cursor = (u8*) memory;
 }
 
-#define RESET_AT_POINT(arena) \
+// BETTER than garbage collection, manage all allocs at once
+// instead of individually
+#define RESET_TO_POINT_AT_END_OF_SCOPE(arena) \
 auto current_point = arena.cursor; \
 defer { arena.cursor = current_point; }
 
@@ -128,8 +136,8 @@ struct Defer_Generator { template<typename Code> Defer<Code> operator +(Code cod
 #define GEN_DEFER_NAME(name, counter) GEN_DEFER_NAME_HACK(name, counter)
 #define defer auto GEN_DEFER_NAME(_defer_, __COUNTER__) = Defer_Generator{} + [&]()
 
-template<typename T, size_t Count>
-struct Array_Fix {
+template<typename T, s64 Count>
+struct Array_Fixed {
     T data[Count];
     
     T& operator [] (s64 idx) {
@@ -137,16 +145,62 @@ struct Array_Fix {
     }
 };
 
-struct Array_Dyn {
-
+template<typename T>
+struct Array_Dynamic {
+    T* data;
+    s64 count;
+    s64 reserved;
+    
+    T& operator [] (s64 idx) {
+        return data[idx];
+    }
 };
 
+template<typename T>
 struct Array_View {
+    T* data;
+    s64 count;
 
+    T& operator [] (s64 idx) {
+        return data[idx];
+    }
 };
 
+template<typename T>
+void array_init(Array_Dynamic<T>* arr) {
+    auto& a = *arr;
+    a.data = (T*) alloc(&arena, sizeof(T) * 1);
+    a.reserved = 1;
+    a.count = 0;
+}
+
+template<typename T>
+void array_grow(Array_Dynamic<T>* arr, s64 amount) {
+    auto& a = *arr;
+    printf("%p\n", a.data);
+    a.data = (T*) realloc(&arena, a.data, sizeof(T) * a.reserved, sizeof(T) * (a.reserved + amount)); 
+    printf("%p\n", a.data);
+    a.reserved += amount;
+}
+
+template<typename T>
+void array_add(Array_Dynamic<T>* arr, T entry) {
+    auto& a = *arr;
+    if (a.count == a.reserved) {
+        array_grow(arr, a.reserved);
+    }
+    a.data[a.count] = entry;
+    a.count += 1;
+}
+
+void init_context() {
+    init(&context.arena);
+}
 
 int main() {
+    // Initting the context;
+    init_context();
+    
     bool* a_bool = (bool*) malloc(sizeof(bool));
     *a_bool = true;
     u8* viewer = (u8*) a_bool;
@@ -164,8 +218,7 @@ int main() {
     print_binary(&d, sizeof(f64));
     print_binary(a_bool, sizeof(bool));
     
-    Arena arena;
-    init(&arena);
+    
     arena.align = 1;
     printf("%p\n", arena.memory);
     a_bool = (bool*) alloc(&arena, sizeof(bool));
@@ -187,8 +240,17 @@ int main() {
     //     alloc(&arena, sizeof(int));
     // }
     
-    Array_Fix<int, 2> arr;
+    Array_Fixed<int, 2> arr;
     arr[0] = 2;
     printf("%d\n", arr[0]);
     
+    Array_Dynamic<int> arrd;
+    array_init(&arrd);
+    array_add(&arrd, 2);
+    array_add(&arrd, 4);
+    array_add(&arrd, 3);
+    array_add(&arrd, 5);
+    array_add(&arrd, 4);
+    printf("%d, %d, %d, %d, %d\n", arrd[0], arrd[1], arrd[2], arrd[3], arrd[4]);
+    printf("Count: %ld, Reserved: %ld\n", arrd.count, arrd.reserved);
 }
